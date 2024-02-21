@@ -170,7 +170,7 @@ def plot_cameras(fig: go.Figure, reconstruction: pycolmap.Reconstruction, **kwar
 def plot_reconstruction(
     fig: go.Figure,
     rec: pycolmap.Reconstruction,
-    max_reproj_error: float = 6.0,
+    max_reproj_error: float = 6,
     color: str = "rgb(0, 0, 255)",
     name: Optional[str] = None,
     min_track_length: int = 2,
@@ -178,6 +178,9 @@ def plot_reconstruction(
     cameras: bool = True,
     points_rgb: bool = True,
     cs: float = 1.0,
+    radius: float = 100,
+    ps: int = 1,
+    names = None
 ):
     # Filter outliers
     bbs = rec.compute_bounding_box(0.001, 0.999)
@@ -192,12 +195,16 @@ def plot_reconstruction(
             and p3D.track.length() >= min_track_length
         )
     ]
+    
+    center = list(rec.images.values())[0].cam_from_world.translation
+    # p3Ds = [point for point in p3Ds if np.linalg.norm(point.xyz - center) < radius]
     xyzs = [p3D.xyz for p3D in p3Ds]
+    # print(xyzs)
     if points_rgb:
         pcolor = [p3D.color for p3D in p3Ds]
     else:
         pcolor = color
     if points:
-        plot_points(fig, np.array(xyzs), color=pcolor, ps=1, name=name)
+        plot_points(fig, np.array(xyzs), color=pcolor, ps=ps, name=name)
     if cameras:
         plot_cameras(fig, rec, color=color, legendgroup=name, size=cs)

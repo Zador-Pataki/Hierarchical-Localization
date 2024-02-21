@@ -226,7 +226,8 @@ def main(
     as_half: bool = True,
     image_list: Optional[Union[Path, List[str]]] = None,
     feature_path: Optional[Path] = None,
-    overwrite: bool = False,
+    overwrite: bool = False, 
+    rot_images=None,
 ) -> Path:
     logger.info(
         "Extracting local features with configuration:" f"\n{pprint.pformat(conf)}"
@@ -253,19 +254,43 @@ def main(
     )
     for idx, data in enumerate(tqdm(loader)):
         name = dataset.names[idx]
+        
+        if rot_images is not None:
+            rot_k = rot_images[name]
+            data["image"] = torch.rot90(data["image"], k=rot_k, dims=(2, 3))
+            
         pred = model({"image": data["image"].to(device, non_blocking=True)})
+        
         pred = {k: v[0].cpu().numpy() for k, v in pred.items()}
 
         pred["image_size"] = original_size = data["original_size"][0].numpy()
         if "keypoints" in pred:
+            h, w =data["image"][0,0].numpy().shape
+          
+            if rot_images is not None:
+                
+                data["image"] = torch.rot90(data["image"], k=(4-rot_k)%4, dims=(2, 3))
+                
             size = np.array(data["image"].shape[-2:][::-1])
             scales = (original_size / size).astype(np.float32)
+            
+            if rot_images is not None:
+                def adjust_keypoints_array(keypoints, imshape, n_rotations_clockwise):
+                    h, w = imshape  # Original image dimensions
+                    for _ in range(n_rotations_clockwise):
+                        keypoints = np.column_stack((w - 1 -  keypoints[:, 1], keypoints[:, 0]))
+                        h, w = h, w  
+                    return keypoints
+                pred["keypoints"] = adjust_keypoints_array(pred["keypoints"], (h, w), rot_k)
+              
+            
             pred["keypoints"] = (pred["keypoints"] + 0.5) * scales[None] - 0.5
             if "scales" in pred:
                 pred["scales"] *= scales.mean()
             # add keypoint uncertainties scaled to the original resolution
             uncertainty = getattr(model, "detection_noise", 1) * scales.mean()
-
+ 
+      
         if as_half:
             for k in pred:
                 dt = pred[k].dtype

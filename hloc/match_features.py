@@ -153,6 +153,8 @@ def main(
     matches: Optional[Path] = None,
     features_ref: Optional[Path] = None,
     overwrite: bool = False,
+    
+    rot_images=None,
 ) -> Path:
     if isinstance(features, Path) or Path(features).exists():
         features_q = features
@@ -171,7 +173,8 @@ def main(
 
     if features_ref is None:
         features_ref = features_q
-    match_from_paths(conf, pairs, matches, features_q, features_ref, overwrite)
+    match_from_paths(conf, pairs, matches, features_q, features_ref, overwrite, 
+    rot_images)
 
     return matches
 
@@ -207,6 +210,7 @@ def match_from_paths(
     feature_path_q: Path,
     feature_path_ref: Path,
     overwrite: bool = False,
+    rot_images=None,
 ) -> Path:
     logger.info(
         "Matching local features with configuration:" f"\n{pprint.pformat(conf)}"
@@ -235,14 +239,28 @@ def match_from_paths(
         dataset, num_workers=5, batch_size=1, shuffle=False, pin_memory=True
     )
     writer_queue = WorkQueue(partial(writer_fn, match_path=match_path), 5)
-
+ 
     for idx, data in enumerate(tqdm(loader, smoothing=0.1)):
+        pair = names_to_pair(*pairs[idx])
+        imname0, imname1 = pair.split("/")
+  
         data = {
             k: v if k.startswith("image") else v.to(device, non_blocking=True)
             for k, v in data.items()
         }
+        if rot_images is not None:
+            def adjust_keypoints_array(keypoints, imshape, n_rotations_clockwise):
+                    _, _, h, w = imshape  # Original image dimensions
+                    for _ in range(n_rotations_clockwise):
+                        keypoints = torch.column_stack((w - 1 -  keypoints[0, :, 1], keypoints[0, :, 0]))[None]
+                        h, w = h, w  
+                    return keypoints
+            data["keypoints0"] = adjust_keypoints_array(data["keypoints0"], data["image0"].shape, (4-rot_images[imname0])%4)
+            data["keypoints1"] = adjust_keypoints_array(data["keypoints1"], data["image1"].shape, (4-rot_images[imname1])%4)
+      
         pred = model(data)
-        pair = names_to_pair(*pairs[idx])
+        # print(pred.keys())
+        
         writer_queue.put((pair, pred))
     writer_queue.join()
     logger.info("Finished exporting matches.")
