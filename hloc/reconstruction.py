@@ -73,10 +73,6 @@ def run_reconstruction(
     if options is None:
         options = {}
     options = {"num_threads": min(multiprocessing.cpu_count(), 16), **options}
-    if "init_image_id1" in options:
-        name_to_id = get_image_ids(database_path)
-        options["init_image_id1"] = name_to_id[options["init_image_id1"]]   
-        options["init_image_id2"] = name_to_id[options["init_image_id2"]]
     
 
     with OutputCapture(verbose):
