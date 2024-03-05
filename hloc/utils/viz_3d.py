@@ -183,19 +183,22 @@ def plot_reconstruction(
     names = None
 ):
     # Filter outliers
-    bbs = rec.compute_bounding_box(0.001, 0.999)
+    bbs = rec.compute_bounding_box(0.1, 0.99)
     # Filter points, use original reproj error here
-    p3Ds = [
-        p3D
-        for _, p3D in rec.points3D.items()
-        if (
+    mask = [(
             (p3D.xyz >= bbs[0]).all()
             and (p3D.xyz <= bbs[1]).all()
             and p3D.error <= max_reproj_error
             and p3D.track.length() >= min_track_length
         )
+        for _, p3D in rec.points3D.items()
     ]
-    
+    p3Ds = [p3D
+        for (_, p3D), m in zip(rec.points3D.items(), mask) if m]
+    #check if coloristype list
+    if isinstance(color, list):
+        color = [c for c,m in zip(color,mask) if m]
+    # p3Ds = [p3D for _, p3D in rec.points3D.items()]
     center = list(rec.images.values())[0].cam_from_world.translation
     # p3Ds = [point for point in p3Ds if np.linalg.norm(point.xyz - center) < radius]
     xyzs = [p3D.xyz for p3D in p3Ds]

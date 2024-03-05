@@ -227,7 +227,8 @@ def main(
     image_list: Optional[Union[Path, List[str]]] = None,
     feature_path: Optional[Path] = None,
     overwrite: bool = False, 
-    rot_images=None,
+    rot_images=None, 
+    masks_path=None,
 ) -> Path:
     logger.info(
         "Extracting local features with configuration:" f"\n{pprint.pformat(conf)}"
@@ -246,21 +247,31 @@ def main(
         return feature_path
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
+
     Model = dynamic_load(extractors, conf["model"]["name"])
     model = Model(conf["model"]).eval().to(device)
 
     loader = torch.utils.data.DataLoader(
         dataset, num_workers=1, shuffle=False, pin_memory=True
     )
+    
+    if masks_path is not None:
+        with h5py.File(masks_path, 'r') as file:
+            masks = {name: file[name][:] for name in file}
+   
+        
+    
     for idx, data in enumerate(tqdm(loader)):
         name = dataset.names[idx]
+      
         
         if rot_images is not None:
             rot_k = rot_images[name]
             data["image"] = torch.rot90(data["image"], k=rot_k, dims=(2, 3))
             
         pred = model({"image": data["image"].to(device, non_blocking=True)})
-        
+       
         pred = {k: v[0].cpu().numpy() for k, v in pred.items()}
 
         pred["image_size"] = original_size = data["original_size"][0].numpy()
@@ -282,9 +293,21 @@ def main(
                         h, w = h, w  
                     return keypoints
                 pred["keypoints"] = adjust_keypoints_array(pred["keypoints"], (h, w), rot_k)
-              
+          
             
             pred["keypoints"] = (pred["keypoints"] + 0.5) * scales[None] - 0.5
+      
+            if masks_path is not None:
+                kp_int = (pred["keypoints"]+0.5).astype(int)
+                mask = ~masks[name][kp_int[:, 1], kp_int[:, 0]]
+                pred["keypoints"] = pred["keypoints"][mask]
+                pred["descriptors"] = pred["descriptors"][:, mask]
+                pred["scales"] = pred["scales"][mask]
+                pred["oris"] = pred["oris"][mask]
+                pred["scores"] = pred["scores"][mask]
+       
+                
+               
             if "scales" in pred:
                 pred["scales"] *= scales.mean()
             # add keypoint uncertainties scaled to the original resolution
