@@ -57,10 +57,12 @@ class DoG(BaseModel):
             else:
                 options["normalization"] = pycolmap.Normalization.L2
             self.sift = pycolmap.Sift(
-                options=pycolmap.SiftExtractionOptions(options),
+                options=pycolmap.SiftExtractionOptions(),#options),
                 device=getattr(pycolmap.Device, "cuda" if use_gpu else "cpu"),
             )
 
+        if image_np.flags["F_CONTIGUOUS"]:
+            image_np = np.ascontiguousarray(image_np)
         keypoints, descriptors = self.sift.extract(image_np)
         scales = keypoints[:, 2]
         oris = np.rad2deg(keypoints[:, 3])

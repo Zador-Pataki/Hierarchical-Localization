@@ -20,7 +20,7 @@ def to_homogeneous(points):
     return np.concatenate([points, pad], axis=-1)
 
 
-def init_figure(height: int = 800) -> go.Figure:
+def init_figure(height: int = 2000) -> go.Figure:
     """Initialize a 3D figure."""
     fig = go.Figure()
     axes = dict(
@@ -32,7 +32,10 @@ def init_figure(height: int = 800) -> go.Figure:
         autorange=True,
     )
     fig.update_layout(
-        template="plotly_dark",
+        # template="plotly_dark",
+        #use white background
+        template="plotly",
+        
         height=height,
         scene_camera=dict(
             eye=dict(x=0.0, y=-0.1, z=-2),
@@ -44,6 +47,7 @@ def init_figure(height: int = 800) -> go.Figure:
             yaxis=axes,
             zaxis=axes,
             aspectmode="data",
+            # aspectratio=dict(x=1, y=1, z=1),
             dragmode="orbit",
         ),
         margin=dict(l=0, r=0, b=0, t=0, pad=0),
@@ -78,10 +82,12 @@ def plot_camera(
     fig: go.Figure,
     R: np.ndarray,
     t: np.ndarray,
+    
     K: np.ndarray,
     color: str = "rgb(0, 0, 255)",
     name: Optional[str] = None,
     legendgroup: Optional[str] = None,
+    show_legend: bool = True,
     fill: bool = False,
     size: float = 1.0,
     text: Optional[str] = None,
@@ -98,13 +104,13 @@ def plot_camera(
     corners = to_homogeneous(corners) @ np.linalg.inv(K).T
     corners = (corners / 2 * scale) @ R.T + t
     legendgroup = legendgroup if legendgroup is not None else name
-
     x, y, z = np.concatenate(([t], corners)).T
     i = [0, 0, 0, 0]
     j = [1, 2, 3, 4]
     k = [2, 3, 4, 1]
 
     if fill:
+        name=None
         pyramid = go.Mesh3d(
             x=x,
             y=y,
@@ -115,7 +121,7 @@ def plot_camera(
             k=k,
             legendgroup=legendgroup,
             name=name,
-            showlegend=False,
+            showlegend=True,
             hovertemplate=text.replace("\n", "<br>"),
         )
         fig.add_trace(pyramid)
@@ -124,7 +130,6 @@ def plot_camera(
     vertices = np.concatenate(([t], corners))
     tri_points = np.array([vertices[i] for i in triangles.reshape(-1)])
     x, y, z = tri_points.T
-
     pyramid = go.Scatter3d(
         x=x,
         y=y,
@@ -132,10 +137,11 @@ def plot_camera(
         mode="lines",
         legendgroup=legendgroup,
         name=name,
-        line=dict(color=color, width=1),
-        showlegend=False,
+        line=dict(color=color, width=6),
+        showlegend=show_legend,
         hovertemplate=text.replace("\n", "<br>"),
     )
+    
     fig.add_trace(pyramid)
 
 
@@ -144,6 +150,8 @@ def plot_camera_colmap(
     image: pycolmap.Image,
     camera: pycolmap.Camera,
     name: Optional[str] = None,
+    show_legend: bool = True,
+    legendgroup: Optional[str] = None,
     **kwargs
 ):
     """Plot a camera frustum from PyCOLMAP objects"""
@@ -153,18 +161,26 @@ def plot_camera_colmap(
         world_t_camera.rotation.matrix(),
         world_t_camera.translation,
         camera.calibration_matrix(),
-        name=name or str(image.image_id),
+        # name=name or str(image.image_id),
+        name=legendgroup,
+        legendgroup=legendgroup,
         text=str(image),
+        show_legend=show_legend,
         **kwargs
     )
 
 
 def plot_cameras(fig: go.Figure, reconstruction: pycolmap.Reconstruction, **kwargs):
     """Plot a camera as a cone with camera frustum."""
+    show_legend=True
     for image_id, image in reconstruction.images.items():
+        if not image.registered:
+            continue
+        
         plot_camera_colmap(
-            fig, image, reconstruction.cameras[image.camera_id], **kwargs
+            fig, image, reconstruction.cameras[image.camera_id], show_legend=show_legend, name=image.name, **kwargs
         )
+        show_legend = False
 
 
 def plot_reconstruction(
@@ -183,23 +199,28 @@ def plot_reconstruction(
     names = None
 ):
     # Filter outliers
-    bbs = rec.compute_bounding_box(0.1, 0.99)
+    # bbs = rec.compute_bounding_box(0, 1)
     # Filter points, use original reproj error here
-    mask = [(
-            (p3D.xyz >= bbs[0]).all()
-            and (p3D.xyz <= bbs[1]).all()
-            and p3D.error <= max_reproj_error
-            and p3D.track.length() >= min_track_length
-        )
-        for _, p3D in rec.points3D.items()
-    ]
-    p3Ds = [p3D
-        for (_, p3D), m in zip(rec.points3D.items(), mask) if m]
+    # mask = [(
+    #         (p3D.xyz >= bbs[0]).all()
+    #         and (p3D.xyz <= bbs[1]).all()
+    #         and p3D.error <= max_reproj_error
+    #         and p3D.track.length() >= min_track_length
+    #     )
+    #     for _, p3D in rec.points3D.items()
+    # ]
+    # p3Ds = [p3D
+    #     for (_, p3D), m in zip(rec.points3D.items(), mask) if m]
+    
     #check if coloristype list
-    if isinstance(color, list):
-        color = [c for c,m in zip(color,mask) if m]
+    p3Ds = list(rec.points3D.values())
+    # if isinstance(color, list):
+    #     color = [c for c,m in zip(color,mask) if m]
+    
+    
+    
     # p3Ds = [p3D for _, p3D in rec.points3D.items()]
-    center = list(rec.images.values())[0].cam_from_world.translation
+    # center = list(rec.images.values())[0].cam_from_world.translation
     # p3Ds = [point for point in p3Ds if np.linalg.norm(point.xyz - center) < radius]
     xyzs = [p3D.xyz for p3D in p3Ds]
     # print(xyzs)
@@ -208,6 +229,6 @@ def plot_reconstruction(
     else:
         pcolor = color
     if points:
-        plot_points(fig, np.array(xyzs), color=pcolor, ps=ps, name=name)
+        plot_points(fig, np.array(xyzs), color=pcolor, ps=ps, name=f"{name}_points")
     if cameras:
-        plot_cameras(fig, rec, color=color, legendgroup=name, size=cs)
+        plot_cameras(fig, rec, legendgroup=f"{name}_cameras", size=cs)#, color=color)
