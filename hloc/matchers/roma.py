@@ -10,6 +10,7 @@ roma_path = Path(__file__).parent / "../../third_party/RoMa"
 sys.path.append(str(roma_path))
 
 from romatch.models.model_zoo.roma_models import roma_model
+from romatch import roma_outdoor, roma_indoor, tiny_roma_v1_outdoor
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class Roma(BaseModel):
         "roma": {
             "roma_outdoor.pth": "https://github.com/Parskatt/storage/releases/download/roma/roma_outdoor.pth",
             "roma_indoor.pth": "https://github.com/Parskatt/storage/releases/download/roma/roma_indoor.pth",
+            "tiny_roma_v1_outdoor.pth": "https://github.com/Parskatt/storage/releases/download/roma/tiny_roma_v1_outdoor.pth",
         },
         "dinov2_vitl14_pretrain.pth": "https://dl.fbaipublicfiles.com/dinov2/dinov2_vitl14/dinov2_vitl14_pretrain.pth",
     }
@@ -57,16 +59,21 @@ class Roma(BaseModel):
 
         logger.info(f"Loading Roma model...")
         # load the model
-        weights = torch.load(model_path, map_location="cpu")
-        dinov2_weights = torch.load(dinov2_weights, map_location="cpu")
+        
+        if "tiny" in conf["model_name"]:
+            self.net = tiny_roma_v1_outdoor(device=device)
+        else:
+            weights = torch.load(model_path, map_location="cpu")
+            dinov2_weights = torch.load(dinov2_weights, map_location="cpu")
 
-        self.net = roma_model(
-            resolution=(14 * 8 * 6, 14 * 8 * 6),
-            upsample_preds=False,
-            weights=weights,
-            dinov2_weights=dinov2_weights,
-            device=device,
-        )
+            self.net = roma_model(
+                resolution=(14 * 8 * 6, 14 * 8 * 6),
+                upsample_preds=False,
+                weights=weights,
+                dinov2_weights=dinov2_weights,
+                device=device,
+            )
+        self.conf = conf
         logger.info(f"Load Roma model done.")
 
     def _forward(self, data):
@@ -80,7 +87,10 @@ class Roma(BaseModel):
         W_B, H_B = img1.size
 
         # Match
-        warp, certainty = self.net.match(img0, img1, device=device)
+        if "tiny" in self.conf["model_name"]:
+            warp, certainty = self.net.match(img0, img1)
+        else:
+            warp, certainty = self.net.match(img0, img1, device = device)
         # Sample matches for estimation
         matches, certainty = self.net.sample(
             warp, certainty, num=self.conf["max_keypoints"]
